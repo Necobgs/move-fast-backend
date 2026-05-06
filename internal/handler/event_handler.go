@@ -117,10 +117,6 @@ func (h *EventHandler) GetMyDriverLocation(c *ws.ClientWebSocket, data message.B
 	if !ok {
 		return
 	}
-	value.Conn.WriteJSON(message.DriverLocation{
-		Lat: *lat,
-		Lng: *lng,
-	})
 
 	driverLocJson, err := json.Marshal(message.DriverLocation{
 		Lat: *lat,

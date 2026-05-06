@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/Necobgs/move-fast-backend/internal/ws/message"
@@ -36,17 +37,20 @@ func NewWsHandler(rdb *redis.Client, authService *service.AuthService, hub *Hub,
 }
 
 func (h *HandlerWs) HandleConnection(c *gin.Context) {
-
+	fmt.Println("Conectado")
 	tokenString := c.Query("token")
+	fmt.Println("token: ", tokenString)
 	token, err := h.authService.ValidateToken(tokenString)
 	if err != nil {
+		fmt.Println("token inválido")
 		c.AbortWithStatus(401)
 		return
 	}
-	claims := token.Claims.(auth.CustomClaims)
+	claims := token.Claims.(*auth.CustomClaims)
 
 	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		fmt.Println("upgrade err:", err.Error())
 		return
 	}
 
@@ -54,7 +58,7 @@ func (h *HandlerWs) HandleConnection(c *gin.Context) {
 		ID:     BuildClientKey(claims.Id, claims.DriverId),
 		Conn:   conn,
 		Send:   make(chan []byte),
-		Claims: &claims,
+		Claims: claims,
 	}
 
 	h.hub.Register <- client

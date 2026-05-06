@@ -1,0 +1,10 @@
+Validar o tipo de imagem na criação do usuário para permitir apenas imagens e não outro tipo de arquivo
+
+Testar o Websocket
+
+Cachear com tempo de ttl no cache redis a localização do driver de 2 minutos
+h.rdb.Set(ctx, "driver:lastseen:"+driverId, time.Now().Unix(), time.Minute*2)
+
+Cachear (userId, rideId, driverId) = [latitude_driver,longitude_driver] para retornar a localização do motorista mais rapidamente
+
+responder e cachear informação de localização somente de 3 em 3 segundos
