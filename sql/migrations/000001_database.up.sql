@@ -31,7 +31,7 @@ CREATE TABLE drivers (
 );
 
 CREATE TABLE rides (
-    id UUID PRIMARY KEY DEFAULT 'c2e85aee-be95-4f38-ad0b-dd096b78bac0',
+    id UUID PRIMARY KEY,
     passenger_id UUID NOT NULL,
     driver_id UUID,
 
@@ -43,7 +43,7 @@ CREATE TABLE rides (
     destination_lat DOUBLE PRECISION NOT NULL,
     destination_lng DOUBLE PRECISION NOT NULL,
 
-    status_id UUID NOT NULL,
+    status_id UUID NOT NULL DEFAULT 'c2e85aee-be95-4f38-ad0b-dd096b78bac0',
 
     started_at TIMESTAMP WITH TIME ZONE,
     ended_at TIMESTAMP WITH TIME ZONE,
@@ -52,7 +52,7 @@ CREATE TABLE rides (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 
-    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (passenger_id) REFERENCES users(id),
     FOREIGN KEY (driver_id) REFERENCES drivers(id),
     FOREIGN KEY (status_id) REFERENCES ride_status(id)
 );

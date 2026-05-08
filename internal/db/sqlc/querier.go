@@ -21,7 +21,7 @@ type Querier interface {
 	ExistsVehicle(ctx context.Context, licensePlate string) (bool, error)
 	FindSafeUserByEmail(ctx context.Context, email string) (*FindSafeUserByEmailRow, error)
 	FindUserByEmail(ctx context.Context, email string) (*FindUserByEmailRow, error)
-	IsRideFromUser(ctx context.Context, arg IsRideFromUserParams) (bool, error)
+	GetRideFromDriver(ctx context.Context, arg GetRideFromDriverParams) (uuid.UUID, error)
 	UpdateRide(ctx context.Context, arg UpdateRideParams) (*UpdateRideRow, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) error
 }

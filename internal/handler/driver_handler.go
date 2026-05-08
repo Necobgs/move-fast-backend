@@ -21,7 +21,7 @@ func NewDriverHandler(service *service.DriverService) *DriverHandler {
 func (h *DriverHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rgDriver := rg.Group("/driver").Use(middleware.AuthMiddleware())
 	{
-		rgDriver.POST("/", h.CreateDriver)
+		rgDriver.POST("", h.CreateDriver)
 	}
 }
 

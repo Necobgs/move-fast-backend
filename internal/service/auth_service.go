@@ -9,6 +9,7 @@ import (
 	"github.com/Necobgs/move-fast-backend/internal/db/sqlc"
 	"github.com/Necobgs/move-fast-backend/internal/dto"
 	"github.com/Necobgs/move-fast-backend/internal/response"
+	"github.com/Necobgs/move-fast-backend/internal/utils"
 	"github.com/golang-jwt/jwt"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -47,11 +48,12 @@ func (s *AuthService) Signin(signinDto dto.SigninDto) (*dto.SigninResponseDto, *
 
 func (s *AuthService) GenerateClaims(user *sqlc.FindUserByEmailRow) *jwt.MapClaims {
 	return &jwt.MapClaims{
-		"id":        user.ID,
-		"email":     user.Email,
-		"name":      user.Name,
-		"driver_id": user.DriverID,
-		"exp":       time.Now().Add(time.Hour).Unix(),
+		"id":         user.ID,
+		"email":      user.Email,
+		"name":       user.Name,
+		"driver_id":  user.DriverID,
+		"identifier": utils.BuildClientKey(user.ID.String(), user.DriverID.String()),
+		"exp":        time.Now().Add(time.Hour).Unix(),
 	}
 }
 

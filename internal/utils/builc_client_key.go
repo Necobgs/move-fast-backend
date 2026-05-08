@@ -1,4 +1,4 @@
-package ws
+package utils
 
 func BuildClientKey(userId, driverId string) string {
 	if driverId != "" {

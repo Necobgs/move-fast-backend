@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/Necobgs/move-fast-backend/internal/utils"
 	"github.com/Necobgs/move-fast-backend/internal/ws/message"
 
 	"github.com/Necobgs/move-fast-backend/internal/auth"
@@ -55,7 +56,7 @@ func (h *HandlerWs) HandleConnection(c *gin.Context) {
 	}
 
 	client := &ClientWebSocket{
-		ID:     BuildClientKey(claims.Id, claims.DriverId),
+		ID:     utils.BuildClientKey(claims.Id, claims.DriverId),
 		Conn:   conn,
 		Send:   make(chan []byte),
 		Claims: claims,
@@ -83,11 +84,16 @@ func (h *HandlerWs) readPump(c *ClientWebSocket) {
 		var base message.BaseMessage
 		err = json.Unmarshal(msg, &base)
 		if err != nil {
+			fmt.Println("Erro ao deserializar baseMessage: ", err)
 			break
 		}
+		fmt.Println("--base message--")
+		fmt.Println("event: ", base.Event)
+		fmt.Println("data: ", base.Data)
 
 		handler, ok := h.eventRegistry.GetHandler(base.Event)
 		if !ok {
+			fmt.Println("handler not não encontrado")
 			break
 		}
 		handler(c, base)

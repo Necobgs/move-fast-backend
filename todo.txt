@@ -5,6 +5,10 @@ Testar o Websocket
 Cachear com tempo de ttl no cache redis a localização do driver de 2 minutos
 h.rdb.Set(ctx, "driver:lastseen:"+driverId, time.Now().Unix(), time.Minute*2)
 
-Cachear (userId, rideId, driverId) = [latitude_driver,longitude_driver] para retornar a localização do motorista mais rapidamente
 
-responder e cachear informação de localização somente de 3 em 3 segundos
+--------- update loc driver ---------
+motorista envia update_location_driver
+backend atualiza no Redis
+backend detecta corridas ativas daquele motorista
+backend envia automaticamente a nova localização para o passageiro
+-------------------------------------

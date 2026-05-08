@@ -17,7 +17,7 @@ func NewUserHandler(userService *service.UserService) *UserHandler {
 }
 
 func (h *UserHandler) RegisterRoutes(rg *gin.RouterGroup) {
-	rgUsers := rg.Group("/user").
+	rgUsers := rg.Group("/user/").
 		Use(middleware.AuthMiddleware())
 	{
 		rgUsers.GET("/me", h.GetMe)

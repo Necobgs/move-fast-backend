@@ -40,8 +40,9 @@ func Bootstrap() {
 	eventhandler := handler.NewEventHandler(queries, rdbc, wsHub.Clients)
 
 	// Events WebSocket
-	eventRegistry.Register("request_ride", eventhandler.RequestRide) // Solicitar carona
-	eventRegistry.Register("ride_request", eventhandler.RideRequest) // Solicitação de carona
+	eventRegistry.Register("request_ride", eventhandler.RequestRide)                    // Solicitar carona
+	eventRegistry.Register("requested_ride", eventhandler.RequestedRide)                // Solicitação de carona
+	eventRegistry.Register("update_location_driver", eventhandler.UpdateLocationDriver) // Solicitação de carona
 
 	// HTTP
 	gin.SetMode(cfg.GinMode)

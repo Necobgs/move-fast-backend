@@ -5,9 +5,10 @@ import (
 )
 
 type CustomClaims struct {
-	Id       string `json:"id"`
-	Email    string `json:"email"`
-	Name     string `json:"name"`
-	DriverId string `json:"driver_id"`
+	Id         string `json:"id"`
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	DriverId   string `json:"driver_id"`
+	Identifier string `json:"identifier"`
 	jwt.StandardClaims
 }
