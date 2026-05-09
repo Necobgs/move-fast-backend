@@ -26,7 +26,7 @@ type Ride struct {
 	DestinationAddress string             `json:"destination_address"`
 	DestinationLat     float64            `json:"destination_lat"`
 	DestinationLng     float64            `json:"destination_lng"`
-	StatusID           uuid.UUID          `json:"status_id"`
+	StatusID           string             `json:"status_id"`
 	StartedAt          pgtype.Timestamptz `json:"started_at"`
 	EndedAt            pgtype.Timestamptz `json:"ended_at"`
 	MonetaryValue      pgtype.Numeric     `json:"monetary_value"`
@@ -35,8 +35,8 @@ type Ride struct {
 }
 
 type RideStatus struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type User struct {

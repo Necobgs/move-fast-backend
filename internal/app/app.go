@@ -35,14 +35,13 @@ func Bootstrap() {
 	userHandler := handler.NewUserHandler(userService)
 	authHandler := handler.NewAuthHandler(authService, userService)
 	driverHandler := handler.NewDriverHandler(driverService)
-	wsHandler := ws.NewWsHandler(rdbc, authService, wsHub, eventRegistry)
-
-	eventhandler := handler.NewEventHandler(queries, rdbc, wsHub.Clients)
+	eventHandler := handler.NewEventHandler(queries, rdbc, wsHub)
+	wsHandler := ws.NewWsHandler(rdbc, authService, wsHub, eventRegistry, eventHandler)
 
 	// Events WebSocket
-	eventRegistry.Register("request_ride", eventhandler.RequestRide)                    // Solicitar carona
-	eventRegistry.Register("requested_ride", eventhandler.RequestedRide)                // Solicitação de carona
-	eventRegistry.Register("update_location_driver", eventhandler.UpdateLocationDriver) // Solicitação de carona
+	eventRegistry.Register("request_ride", eventHandler.RequestRide)                    // Solicitar corrida
+	eventRegistry.Register("requested_ride", eventHandler.RequestedRide)                // Corrida solicitada
+	eventRegistry.Register("update_location_driver", eventHandler.UpdateLocationDriver) // Atualizar localização do motorista
 
 	// HTTP
 	gin.SetMode(cfg.GinMode)

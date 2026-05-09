@@ -49,7 +49,7 @@ type CreateRideRow struct {
 	OriginLat          float64   `json:"origin_lat"`
 	OriginLng          float64   `json:"origin_lng"`
 	PassengerID        uuid.UUID `json:"passenger_id"`
-	StatusID           uuid.UUID `json:"status_id"`
+	StatusID           string    `json:"status_id"`
 }
 
 func (q *Queries) CreateRide(ctx context.Context, arg CreateRideParams) (*CreateRideRow, error) {
@@ -78,6 +78,40 @@ func (q *Queries) CreateRide(ctx context.Context, arg CreateRideParams) (*Create
 	return &i, err
 }
 
+const getActiveRideFromPassenger = `-- name: GetActiveRideFromPassenger :one
+SELECT id, passenger_id, driver_id, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, status_id, started_at, ended_at, monetary_value, created_at, updated_at
+FROM rides
+WHERE passenger_id = $1
+AND status_id IN (
+    'WAITING_DRIVER',
+    'STARTED_RIDE'
+)
+LIMIT 1
+`
+
+func (q *Queries) GetActiveRideFromPassenger(ctx context.Context, passengerID uuid.UUID) (*Ride, error) {
+	row := q.db.QueryRow(ctx, getActiveRideFromPassenger, passengerID)
+	var i Ride
+	err := row.Scan(
+		&i.ID,
+		&i.PassengerID,
+		&i.DriverID,
+		&i.OriginAddress,
+		&i.OriginLat,
+		&i.OriginLng,
+		&i.DestinationAddress,
+		&i.DestinationLat,
+		&i.DestinationLng,
+		&i.StatusID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.MonetaryValue,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
 const getRideFromDriver = `-- name: GetRideFromDriver :one
 select
     id
@@ -90,11 +124,33 @@ where
 
 type GetRideFromDriverParams struct {
 	DriverID pgtype.UUID `json:"driver_id"`
-	StatusID uuid.UUID   `json:"status_id"`
+	StatusID string      `json:"status_id"`
 }
 
 func (q *Queries) GetRideFromDriver(ctx context.Context, arg GetRideFromDriverParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, getRideFromDriver, arg.DriverID, arg.StatusID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getRideFromPassenger = `-- name: GetRideFromPassenger :one
+select
+    id
+from 
+    rides
+where 
+    passenger_id = $1 and
+    status_id = $2
+`
+
+type GetRideFromPassengerParams struct {
+	PassengerID uuid.UUID `json:"passenger_id"`
+	StatusID    string    `json:"status_id"`
+}
+
+func (q *Queries) GetRideFromPassenger(ctx context.Context, arg GetRideFromPassengerParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getRideFromPassenger, arg.PassengerID, arg.StatusID)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
@@ -111,7 +167,7 @@ RETURNING id, passenger_id, driver_id, status_id
 `
 
 type UpdateRideParams struct {
-	StatusID uuid.UUID   `json:"status_id"`
+	StatusID string      `json:"status_id"`
 	DriverID pgtype.UUID `json:"driver_id"`
 	ID       uuid.UUID   `json:"id"`
 }
@@ -120,7 +176,7 @@ type UpdateRideRow struct {
 	ID          uuid.UUID   `json:"id"`
 	PassengerID uuid.UUID   `json:"passenger_id"`
 	DriverID    pgtype.UUID `json:"driver_id"`
-	StatusID    uuid.UUID   `json:"status_id"`
+	StatusID    string      `json:"status_id"`
 }
 
 func (q *Queries) UpdateRide(ctx context.Context, arg UpdateRideParams) (*UpdateRideRow, error) {

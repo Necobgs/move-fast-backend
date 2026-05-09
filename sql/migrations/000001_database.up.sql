@@ -1,5 +1,5 @@
 CREATE TABLE ride_status (
-    id UUID PRIMARY KEY,
+    id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(100) NOT NULL
 );
 
@@ -43,7 +43,7 @@ CREATE TABLE rides (
     destination_lat DOUBLE PRECISION NOT NULL,
     destination_lng DOUBLE PRECISION NOT NULL,
 
-    status_id UUID NOT NULL DEFAULT 'c2e85aee-be95-4f38-ad0b-dd096b78bac0',
+    status_id VARCHAR(50) NOT NULL DEFAULT 'REQUESTED_RIDE',
 
     started_at TIMESTAMP WITH TIME ZONE,
     ended_at TIMESTAMP WITH TIME ZONE,

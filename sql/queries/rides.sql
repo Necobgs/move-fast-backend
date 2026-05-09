@@ -31,3 +31,22 @@ from
 where 
     driver_id = $1 and
     status_id = $2;
+
+-- name: GetRideFromPassenger :one
+select
+    id
+from 
+    rides
+where 
+    passenger_id = $1 and
+    status_id = $2;
+
+-- name: GetActiveRideFromPassenger :one
+SELECT *
+FROM rides
+WHERE passenger_id = $1
+AND status_id IN (
+    'WAITING_DRIVER',
+    'STARTED_RIDE'
+)
+LIMIT 1;

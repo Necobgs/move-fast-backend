@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/Necobgs/move-fast-backend/internal/handler"
+	"github.com/Necobgs/move-fast-backend/internal/realtime"
 	"github.com/Necobgs/move-fast-backend/internal/utils"
 	"github.com/Necobgs/move-fast-backend/internal/ws/message"
 
@@ -17,18 +19,20 @@ import (
 
 type HandlerWs struct {
 	upgrader      websocket.Upgrader
+	eventHandler  *handler.EventHandler
 	hub           *Hub
 	rdb           *redis.Client
 	authService   *service.AuthService
 	eventRegistry *EventRegistry
 }
 
-func NewWsHandler(rdb *redis.Client, authService *service.AuthService, hub *Hub, eventRegistry *EventRegistry) *HandlerWs {
+func NewWsHandler(rdb *redis.Client, authService *service.AuthService, hub *Hub, eventRegistry *EventRegistry, eventHandler *handler.EventHandler) *HandlerWs {
 	return &HandlerWs{
 		rdb:           rdb,
 		authService:   authService,
 		hub:           hub,
 		eventRegistry: eventRegistry,
+		eventHandler:  eventHandler,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // TODO adicionar validação do dominio caso for pra produção
@@ -55,7 +59,7 @@ func (h *HandlerWs) HandleConnection(c *gin.Context) {
 		return
 	}
 
-	client := &ClientWebSocket{
+	client := &realtime.Client{
 		ID:     utils.BuildClientKey(claims.Id, claims.DriverId),
 		Conn:   conn,
 		Send:   make(chan []byte),
@@ -64,12 +68,14 @@ func (h *HandlerWs) HandleConnection(c *gin.Context) {
 
 	h.hub.Register <- client
 
+	h.eventHandler.SyncPassengerConnection(client)
+
 	go h.readPump(client)
 	go h.writePump(client)
 
 }
 
-func (h *HandlerWs) readPump(c *ClientWebSocket) {
+func (h *HandlerWs) readPump(c *realtime.Client) {
 	defer func() {
 		h.hub.UnRegister <- c
 		c.Conn.Close()
@@ -89,7 +95,6 @@ func (h *HandlerWs) readPump(c *ClientWebSocket) {
 		}
 		fmt.Println("--base message--")
 		fmt.Println("event: ", base.Event)
-		fmt.Println("data: ", base.Data)
 
 		handler, ok := h.eventRegistry.GetHandler(base.Event)
 		if !ok {
@@ -100,9 +105,22 @@ func (h *HandlerWs) readPump(c *ClientWebSocket) {
 	}
 }
 
-func (h *HandlerWs) writePump(c *ClientWebSocket) {
+func (h *HandlerWs) writePump(
+	c *realtime.Client,
+) {
+
+	defer func() {
+		h.hub.UnRegister <- c
+		c.Conn.Close()
+	}()
+
 	for msg := range c.Send {
-		err := c.Conn.WriteMessage(websocket.TextMessage, msg)
+
+		err := c.Conn.WriteMessage(
+			websocket.TextMessage,
+			msg,
+		)
+
 		if err != nil {
 			break
 		}
