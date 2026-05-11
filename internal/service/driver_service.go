@@ -7,13 +7,15 @@ import (
 	"github.com/Necobgs/move-fast-backend/internal/dto"
 	"github.com/Necobgs/move-fast-backend/internal/models"
 	"github.com/Necobgs/move-fast-backend/internal/response"
+	"github.com/Necobgs/move-fast-backend/pkg/logger"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type DriverService struct {
-	repository *sqlc.Queries
-	db         *pgxpool.Pool
+	repository  *sqlc.Queries
+	db          *pgxpool.Pool
+	authService *AuthService
 }
 
 func NewDriverService(repository *sqlc.Queries, db *pgxpool.Pool) *DriverService {
@@ -24,8 +26,7 @@ func (s *DriverService) CreateDriver(createDriverDto dto.CreateDriverDto, userId
 	ctx := context.Background()
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		print(err.Error())
-		print(6)
+		logger.Log.Error("Erro na transaction do create driver", "error", err)
 		return nil, &response.ErrInternalServer
 	}
 	defer tx.Rollback(ctx)
@@ -55,8 +56,7 @@ func (s *DriverService) CreateDriver(createDriverDto dto.CreateDriverDto, userId
 	})
 
 	if err != nil {
-		print(err.Error())
-		print(3)
+		logger.Log.Error("Erro ao criar vehicle", "error", err)
 		return nil, &response.ErrInternalServer
 	}
 
@@ -67,14 +67,26 @@ func (s *DriverService) CreateDriver(createDriverDto dto.CreateDriverDto, userId
 		VehicleID: vehicle.ID,
 	})
 	if err != nil {
-		print(err.Error())
-		print(1)
+		logger.Log.Error("Erro ao criar driver no banco de dados", "error", err)
+		return nil, &response.ErrInternalServer
+	}
+
+	user, err := qtx.FindUser(ctx, sqlc.FindUserParams{
+		ID: userId,
+	})
+	if err != nil {
+		logger.Log.Error("Erro ao buscar user para token", "error", err)
+		return nil, &response.ErrInternalServer
+	}
+
+	token, err := s.authService.GenerateToken(user)
+	if err != nil {
+		logger.Log.Error("Erro ao gerar token para driver", "error", err)
 		return nil, &response.ErrInternalServer
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		print(err.Error())
-		print(2)
+		logger.Log.Error("Erro no commit da transaction", "error", err)
 		return nil, &response.ErrInternalServer
 	}
 
@@ -92,6 +104,7 @@ func (s *DriverService) CreateDriver(createDriverDto dto.CreateDriverDto, userId
 			Brand:        vehicle.Brand,
 			Color:        vehicle.Color,
 		},
+		Token: token,
 	}
 
 	return &driverResponse, nil

@@ -13,9 +13,20 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (id, name, email, password,photo_url)
+INSERT INTO
+    users (
+        id,
+        name,
+        email,
+        password,
+        photo_url
+    )
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, email,photo_url
+RETURNING
+    id,
+    name,
+    email,
+    photo_url
 `
 
 type CreateUserParams struct {
@@ -52,9 +63,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (*Create
 }
 
 const deleteUser = `-- name: DeleteUser :exec
-UPDATE users
-SET deleted_at = NOW()
-WHERE id = $1
+UPDATE users SET deleted_at = NOW() WHERE id = $1
 `
 
 func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) error {
@@ -63,7 +72,7 @@ func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) error {
 }
 
 const existsUserByEmail = `-- name: ExistsUserByEmail :one
-SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)
+SELECT EXISTS ( SELECT 1 FROM users WHERE email = $1 )
 `
 
 func (q *Queries) ExistsUserByEmail(ctx context.Context, email string) (bool, error) {
@@ -74,7 +83,16 @@ func (q *Queries) ExistsUserByEmail(ctx context.Context, email string) (bool, er
 }
 
 const findSafeUserByEmail = `-- name: FindSafeUserByEmail :one
-SELECT id,name,email,created_at,deleted_at, photo_url FROM users WHERE email = $1
+SELECT
+    id,
+    name,
+    email,
+    created_at,
+    deleted_at,
+    photo_url
+FROM users
+WHERE
+    email = $1
 `
 
 type FindSafeUserByEmailRow struct {
@@ -100,21 +118,27 @@ func (q *Queries) FindSafeUserByEmail(ctx context.Context, email string) (*FindS
 	return &i, err
 }
 
-const findUserByEmail = `-- name: FindUserByEmail :one
-SELECT 
-    users.id, 
-    name, 
-    email, 
+const findUser = `-- name: FindUser :one
+SELECT
+    users.id,
+    name,
+    email,
     password,
     photo_url,
     drivers.id as "driver_id"
-FROM 
-    users
-left join drivers on drivers.user_id = users.id
-WHERE email ilike $1
+FROM users
+    left join drivers on drivers.user_id = users.id
+WHERE
+    email ilike $1
+    or users.id = $2
 `
 
-type FindUserByEmailRow struct {
+type FindUserParams struct {
+	Email string    `json:"email"`
+	ID    uuid.UUID `json:"id"`
+}
+
+type FindUserRow struct {
 	ID       uuid.UUID   `json:"id"`
 	Name     string      `json:"name"`
 	Email    string      `json:"email"`
@@ -123,9 +147,9 @@ type FindUserByEmailRow struct {
 	DriverID pgtype.UUID `json:"driver_id"`
 }
 
-func (q *Queries) FindUserByEmail(ctx context.Context, email string) (*FindUserByEmailRow, error) {
-	row := q.db.QueryRow(ctx, findUserByEmail, email)
-	var i FindUserByEmailRow
+func (q *Queries) FindUser(ctx context.Context, arg FindUserParams) (*FindUserRow, error) {
+	row := q.db.QueryRow(ctx, findUser, arg.Email, arg.ID)
+	var i FindUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -139,8 +163,13 @@ func (q *Queries) FindUserByEmail(ctx context.Context, email string) (*FindUserB
 
 const updateUser = `-- name: UpdateUser :exec
 UPDATE users
-SET name = $2, email = $3, password = $4, deleted_at = $5
-WHERE id = $1
+SET
+    name = $2,
+    email = $3,
+    password = $4,
+    deleted_at = $5
+WHERE
+    id = $1
 `
 
 type UpdateUserParams struct {

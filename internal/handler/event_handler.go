@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"sync"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/Necobgs/move-fast-backend/internal/realtime"
 	"github.com/Necobgs/move-fast-backend/internal/utils"
 	"github.com/Necobgs/move-fast-backend/internal/ws/message"
+	"github.com/Necobgs/move-fast-backend/pkg/logger"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/redis/go-redis/v9"
@@ -39,12 +39,39 @@ func NewEventHandler(
 	rdb *redis.Client,
 	hub realtime.Hub,
 ) *EventHandler {
-	return &EventHandler{
+	handler := &EventHandler{
 		repository: repository,
 		rdb:        rdb,
 		hub:        hub,
 
 		ridePassengers: make(map[string]string),
+	}
+
+	go handler.startLocationCleanup()
+
+	return handler
+}
+
+func (h *EventHandler) startLocationCleanup() {
+	ticker := time.NewTicker(30 * time.Second)
+	for range ticker.C {
+		ctx := context.Background()
+
+		drivers, err := h.rdb.ZRange(ctx, "driver_locations", 0, -1).Result()
+		if err != nil {
+			continue
+		}
+
+		for _, driverID := range drivers {
+			exists, err := h.rdb.Exists(ctx, "driver:lastseen:"+driverID).Result()
+			if err != nil {
+				continue
+			}
+
+			if exists == 0 {
+				h.rdb.ZRem(ctx, "driver_locations", driverID)
+			}
+		}
 	}
 }
 
@@ -85,10 +112,10 @@ func (h *EventHandler) send(
 
 	payload, err := json.Marshal(response)
 	if err != nil {
-		log.Printf(
-			"[ERROR] falha ao serializar response event=%s err=%v",
-			response.Event,
-			err,
+		logger.Log.Error(
+			"falha ao serializar response",
+			"event", response.Event,
+			"error", err,
 		)
 
 		return false
@@ -100,42 +127,11 @@ func (h *EventHandler) send(
 	)
 }
 
-func (h *EventHandler) fail(
-	c *realtime.Client,
-	event string,
-	message string,
-	err error,
-) {
-
-	log.Printf(
-		"[ERROR] event=%s user_id=%s message=%s err=%v",
-		event,
-		c.Claims.Id,
-		message,
-		err,
-	)
-
-	h.send(
-		c.Claims.Id,
-		WsResponse{
-			Event:   event,
-			Success: false,
-			Message: message,
-		},
-	)
-}
-
 func (h *EventHandler) success(
 	clientID string,
 	event string,
 	data any,
 ) {
-
-	log.Printf(
-		"[INFO] event=%s client_id=%s success=true",
-		event,
-		clientID,
-	)
 
 	h.send(
 		clientID,
@@ -156,13 +152,6 @@ func (h *EventHandler) UpdateLocationDriver(
 
 	err := json.Unmarshal(data.Data, &updateLocation)
 	if err != nil {
-
-		h.fail(
-			c,
-			"update_location_driver",
-			"payload inválido",
-			err,
-		)
 
 		return
 	}
@@ -185,16 +174,10 @@ func (h *EventHandler) UpdateLocationDriver(
 	).Result()
 
 	if err != nil {
-
-		h.fail(
-			c,
-			"update_location_driver",
-			"falha ao atualizar localização",
-			err,
-		)
-
 		return
 	}
+
+	h.rdb.Set(ctx, "driver:lastseen:"+c.Claims.DriverId, time.Now().Unix(), time.Minute*2)
 
 	rideID, err := h.repository.GetRideFromDriver(
 		ctx,
@@ -208,10 +191,6 @@ func (h *EventHandler) UpdateLocationDriver(
 	)
 
 	if err != nil {
-		log.Printf(
-			"[INFO] driver sem corrida ativa driver_id=%s",
-			c.Claims.DriverId,
-		)
 
 		return
 	}
@@ -222,9 +201,9 @@ func (h *EventHandler) UpdateLocationDriver(
 
 	if !ok {
 
-		log.Printf(
-			"[WARN] passenger não encontrado ride_id=%s",
-			rideID.String(),
+		logger.Log.Warn(
+			"passenger não encontrado",
+			"ride_id", rideID.String(),
 		)
 
 		return
@@ -246,9 +225,9 @@ func (h *EventHandler) UpdateLocationDriver(
 
 	if !sent {
 
-		log.Printf(
-			"[WARN] falha ao enviar localização para passenger ride_id=%s",
-			rideID.String(),
+		logger.Log.Warn(
+			"falha ao enviar localização para passenger",
+			"ride_id", rideID.String(),
 		)
 
 		h.removeRidePassenger(
@@ -321,106 +300,58 @@ func (h *EventHandler) getDriverLocation(
 		nil
 }
 
-func (h *EventHandler) RequestRide(
-	c *realtime.Client,
-	data message.BaseMessage,
+func (h *EventHandler) SyncPassengerConnection(
+	client *realtime.Client,
 ) {
 
-	ctx, cancel := context.WithTimeout(
-		context.Background(),
-		5*time.Second,
+	ctx := context.Background()
+
+	passengerID, err := uuid.Parse(
+		client.Claims.Id,
 	)
-	defer cancel()
 
-	var requestRide message.RequestRideMessage
-
-	err := json.Unmarshal(data.Data, &requestRide)
 	if err != nil {
 
-		h.fail(
-			c,
-			"requested_ride",
-			"payload inválido",
-			err,
+		logger.Log.Error(
+			"passenger_id inválido",
+			"error", err,
 		)
 
 		return
 	}
 
-	passengerID := uuid.MustParse(
-		c.Claims.Id,
-	)
-
-	log.Printf(
-		"[INFO] passenger solicitando corrida passenger_id=%s",
-		passengerID.String(),
-	)
-
-	ride, err := h.repository.CreateRide(
+	ride, err := h.repository.GetActiveRideFromPassenger(
 		ctx,
-		sqlc.CreateRideParams{
-			ID:          uuid.New(),
-			PassengerID: passengerID,
-
-			OriginLat:     requestRide.OriginLocationLat,
-			OriginLng:     requestRide.OriginLocationLng,
-			OriginAddress: requestRide.OriginLocationAddress,
-
-			DestinationLat:     requestRide.DestinationLocationLat,
-			DestinationLng:     requestRide.DestinationLocationLng,
-			DestinationAddress: requestRide.DestinationLocationAddress,
-		},
+		passengerID,
 	)
 
 	if err != nil {
 
-		h.fail(
-			c,
-			"requested_ride",
-			"falha ao criar corrida",
-			err,
-		)
-
 		return
 	}
 
+	clientKey := utils.BuildClientKey(
+		client.Claims.Id,
+		"",
+	)
+
+	h.setRidePassenger(
+		ride.ID.String(),
+		clientKey,
+	)
+}
+
+func (h *EventHandler) DispatchRideRequest(ctx context.Context, ride *sqlc.CreateRideRow) error {
 	nearestDriverID, err := h.getNearestDriver(
-		requestRide.OriginLocationLat,
-		requestRide.OriginLocationLng,
+		ride.OriginLat,
+		ride.OriginLng,
 		10,
 		ctx,
 	)
 
 	if err != nil {
-
-		log.Printf(
-			"[WARN] nenhum motorista encontrado ride_id=%s",
-			ride.ID.String(),
-		)
-
-		_, _ = h.repository.UpdateRide(
-			ctx,
-			sqlc.UpdateRideParams{
-				ID:       ride.ID,
-				StatusID: consts.StatusCanceledRideId,
-			},
-		)
-
-		h.fail(
-			c,
-			"requested_ride",
-			"nenhum motorista encontrado",
-			err,
-		)
-
-		return
+		return err
 	}
-
-	log.Printf(
-		"[INFO] motorista encontrado ride_id=%s driver_id=%s",
-		ride.ID.String(),
-		*nearestDriverID,
-	)
 
 	h.success(
 		*nearestDriverID,
@@ -436,213 +367,90 @@ func (h *EventHandler) RequestRide(
 			"ride_destination_lng":     ride.DestinationLng,
 			"ride_destination_address": ride.DestinationAddress,
 
-			"ride_passenger_id": passengerID.String(),
+			"ride_passenger_id": ride.PassengerID.String(),
 		},
 	)
+	return nil
 }
 
-func (h *EventHandler) RequestedRide(
-	c *realtime.Client,
-	data message.BaseMessage,
-) {
-
-	ctx := context.Background()
-
-	var requestedRide message.RequestedRideMessage
-
-	err := json.Unmarshal(
-		data.Data,
-		&requestedRide,
-	)
-
-	if err != nil {
-
-		h.fail(
-			c,
-			"ride_accepted",
-			"payload inválido",
-			err,
-		)
-
-		return
-	}
-
-	rideID, err := uuid.Parse(
-		requestedRide.RideId,
-	)
-
-	if err != nil {
-
-		h.fail(
-			c,
-			"ride_accepted",
-			"ride_id inválido",
-			err,
-		)
-
-		return
-	}
-
-	if !requestedRide.Accepted {
-
-		log.Printf(
-			"[INFO] corrida recusada ride_id=%s driver_id=%s",
-			rideID.String(),
-			c.Claims.DriverId,
-		)
-
-		return
-	}
-
-	driverID, err := uuid.Parse(
-		c.Claims.DriverId,
-	)
-
-	if err != nil {
-
-		h.fail(
-			c,
-			"ride_accepted",
-			"driver_id inválido",
-			err,
-		)
-
-		return
-	}
-
-	rideBasicInfo, err := h.repository.UpdateRide(
-		ctx,
-		sqlc.UpdateRideParams{
-			ID:       rideID,
-			StatusID: consts.StatusWaitingDriverId,
-
-			DriverID: pgtype.UUID{
-				Bytes: driverID,
-				Valid: true,
-			},
-		},
-	)
-
-	if err != nil {
-
-		h.fail(
-			c,
-			"ride_accepted",
-			"falha ao atualizar corrida",
-			err,
-		)
-
-		return
-	}
-
+func (h *EventHandler) DispatchRideAccepted(ctx context.Context, ride *sqlc.UpdateRideRow) error {
 	passengerClientKey := utils.BuildClientKey(
-		rideBasicInfo.PassengerID.String(),
+		ride.PassengerID.String(),
 		"",
 	)
 
+	driverID := ride.DriverID.Bytes
+	driverUUID := uuid.UUID(driverID)
+
 	driverLng, driverLat, err := h.getDriverLocation(
-		driverID.String(),
+		driverUUID.String(),
 		ctx,
 	)
 
 	if err != nil {
-
-		h.fail(
-			c,
-			"ride_accepted",
-			"falha ao buscar localização do motorista",
-			err,
-		)
-
-		return
+		return err
 	}
 
-	sent := h.send(
+	h.send(
 		passengerClientKey,
 		WsResponse{
 			Event:   "ride_accepted",
 			Success: true,
 			Data: map[string]any{
-				"ride_id": rideBasicInfo.ID.String(),
-
-				"driver_id": driverID.String(),
-
+				"ride_id":             ride.ID.String(),
+				"driver_id":           driverUUID.String(),
 				"driver_location_lat": driverLat,
 				"driver_location_lng": driverLng,
 			},
 		},
 	)
 
-	if !sent {
-
-		log.Printf(
-			"[WARN] passenger offline ride_id=%s",
-			rideBasicInfo.ID.String(),
-		)
-
-		return
-	}
-
 	h.setRidePassenger(
-		rideBasicInfo.ID.String(),
+		ride.ID.String(),
 		passengerClientKey,
 	)
 
-	log.Printf(
-		"[INFO] corrida aceita ride_id=%s driver_id=%s",
-		rideBasicInfo.ID.String(),
-		driverID.String(),
-	)
+	return nil
 }
 
-func (h *EventHandler) SyncPassengerConnection(
-	client *realtime.Client,
-) {
-
-	ctx := context.Background()
-
-	passengerID, err := uuid.Parse(
-		client.Claims.Id,
-	)
-
-	if err != nil {
-
-		log.Printf(
-			"[ERROR] passenger_id inválido err=%v",
-			err,
-		)
-
-		return
-	}
-
-	ride, err := h.repository.GetActiveRideFromPassenger(
-		ctx,
+func (h *EventHandler) DispatchRideCanceled(ctx context.Context, rideID string, passengerID string) error {
+	passengerClientKey := utils.BuildClientKey(
 		passengerID,
-	)
-
-	if err != nil {
-
-		log.Printf(
-			"[INFO] passenger sem corrida ativa passenger_id=%s",
-			passengerID.String(),
-		)
-
-		return
-	}
-
-	clientKey := utils.BuildClientKey(
-		client.Claims.Id,
 		"",
 	)
 
-	h.setRidePassenger(
-		ride.ID.String(),
-		clientKey,
+	h.send(
+		passengerClientKey,
+		WsResponse{
+			Event:   "ride_canceled",
+			Success: true,
+			Data: map[string]any{
+				"ride_id": rideID,
+				"reason":  "Tempo limite de espera atingido",
+			},
+		},
 	)
 
-	log.Printf(
-		"[INFO] passenger reconectado ride_id=%s passenger_id=%s",
-		ride.ID.String(),
-		passengerID.String(),
+	return nil
+}
+
+func (h *EventHandler) DispatchRideStatusChanged(ctx context.Context, rideID string, recipientID string, status string) error {
+	clientKey := utils.BuildClientKey(
+		recipientID,
+		"",
 	)
+
+	h.send(
+		clientKey,
+		WsResponse{
+			Event:   "ride_status_changed",
+			Success: true,
+			Data: map[string]any{
+				"ride_id": rideID,
+				"status":  status,
+			},
+		},
+	)
+
+	return nil
 }

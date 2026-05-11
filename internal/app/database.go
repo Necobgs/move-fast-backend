@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/Necobgs/move-fast-backend/configs"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,6 +17,11 @@ func ConnectRedis(ctx *context.Context) *redis.Client {
 
 	if rdb.Ping(*ctx).Err() != nil {
 		panic("cant connect do redis")
+	}
+
+	err := rdb.Expire(*ctx, "driver_locations", 30*time.Second).Err()
+	if err != nil {
+		panic(err)
 	}
 	return rdb
 }

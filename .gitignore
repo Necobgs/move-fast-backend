@@ -21,6 +21,7 @@ profile.cov
 # vendor/
 uploads/*
 !uploads/*.webp
+logs/*
 
 # Go workspace file
 go.work

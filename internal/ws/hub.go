@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/Necobgs/move-fast-backend/internal/realtime"
+	"github.com/Necobgs/move-fast-backend/pkg/logger"
 )
 
 type Hub struct {
@@ -31,21 +32,34 @@ func (h *Hub) Run() {
 
 		case client := <-h.Register:
 
-			existing, ok := h.Clients[client.ID]
+			var id string
+			if client.Claims.DriverId != "" {
+				id = client.Claims.DriverId
+			} else {
+				id = client.Claims.Id
+			}
+			existing, ok := h.Clients[id]
 
 			// Substitui conexão antiga
 			if ok {
 
-				delete(h.Clients, client.ID)
+				delete(h.Clients, id)
 
 				close(existing.Send)
 			}
 
-			h.Clients[client.ID] = client
+			h.Clients[id] = client
 
 		case client := <-h.UnRegister:
 
-			existing, ok := h.Clients[client.ID]
+			var id string
+			if client.Claims.DriverId != "" {
+				id = client.Claims.DriverId
+			} else {
+				id = client.Claims.Id
+			}
+
+			existing, ok := h.Clients[id]
 
 			if !ok {
 				continue
@@ -56,7 +70,7 @@ func (h *Hub) Run() {
 				continue
 			}
 
-			delete(h.Clients, client.ID)
+			delete(h.Clients, id)
 
 			close(client.Send)
 
@@ -87,6 +101,8 @@ func (h *Hub) SendToClient(
 	client, ok := h.Clients[clientID]
 
 	if !ok {
+		logger.Log.Error("Cliente não encontrado", "client_id", clientID)
+
 		return false
 	}
 

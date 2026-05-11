@@ -23,7 +23,9 @@ func NewAuthService(repository *sqlc.Queries) *AuthService {
 }
 
 func (s *AuthService) Signin(signinDto dto.SigninDto) (*dto.SigninResponseDto, *response.ErrorResponse) {
-	userFounded, err := s.repository.FindUserByEmail(context.Background(), signinDto.Email)
+	userFounded, err := s.repository.FindUser(context.Background(), sqlc.FindUserParams{
+		Email: signinDto.Email,
+	})
 
 	if err != nil {
 		return nil, &response.ErrUnauthorized
@@ -34,10 +36,7 @@ func (s *AuthService) Signin(signinDto dto.SigninDto) (*dto.SigninResponseDto, *
 		return nil, &response.ErrUnauthorized
 	}
 
-	claims := s.GenerateClaims(userFounded)
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, *claims)
-
-	tokenString, err := token.SignedString([]byte(configs.Cfg.JWTSecretKey))
+	tokenString, err := s.GenerateToken(userFounded)
 	if err != nil {
 		return nil, &response.ErrInternalServer
 	}
@@ -46,7 +45,17 @@ func (s *AuthService) Signin(signinDto dto.SigninDto) (*dto.SigninResponseDto, *
 	return &signInResponseDto, nil
 }
 
-func (s *AuthService) GenerateClaims(user *sqlc.FindUserByEmailRow) *jwt.MapClaims {
+func (s *AuthService) GenerateToken(user *sqlc.FindUserRow) (string, error) {
+	claims := s.GenerateClaims(user)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, *claims)
+	tokenString, err := token.SignedString([]byte(configs.Cfg.JWTSecretKey))
+	if err != nil {
+		return "", err
+	}
+	return tokenString, nil
+}
+
+func (s *AuthService) GenerateClaims(user *sqlc.FindUserRow) *jwt.MapClaims {
 	return &jwt.MapClaims{
 		"id":         user.ID,
 		"email":      user.Email,

@@ -13,20 +13,37 @@ import (
 )
 
 const createRide = `-- name: CreateRide :one
-insert into rides(
-    id,
-    destination_address, 
-    destination_lat, 
-    destination_lng,
- 
-    origin_address, 
-    origin_lat, 
-    origin_lng, 
-
-    passenger_id
+insert into
+    rides (
+        id,
+        destination_address,
+        destination_lat,
+        destination_lng,
+        origin_address,
+        origin_lat,
+        origin_lng,
+        passenger_id
     )
-values ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id,destination_address,destination_lat,destination_lng,origin_address,origin_lat,origin_lng,passenger_id,status_id
+values (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8
+    )
+RETURNING
+    id,
+    destination_address,
+    destination_lat,
+    destination_lng,
+    origin_address,
+    origin_lat,
+    origin_lng,
+    passenger_id,
+    status_id
 `
 
 type CreateRideParams struct {
@@ -78,14 +95,92 @@ func (q *Queries) CreateRide(ctx context.Context, arg CreateRideParams) (*Create
 	return &i, err
 }
 
+const existsActiveRidesForDriver = `-- name: ExistsActiveRidesForDriver :one
+SELECT EXISTS (
+        SELECT 1
+        FROM rides
+        WHERE
+            driver_id = $1
+            AND status_id NOT IN (
+                'ENDED_RIDE', 'CANCELLED_RIDE'
+            )
+    )
+`
+
+func (q *Queries) ExistsActiveRidesForDriver(ctx context.Context, driverID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, existsActiveRidesForDriver, driverID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const existsActiveRidesForPassenger = `-- name: ExistsActiveRidesForPassenger :one
+SELECT EXISTS (
+        SELECT 1
+        FROM rides
+        WHERE
+            passenger_id = $1
+            AND status_id NOT IN (
+                'ENDED_RIDE', 'CANCELLED_RIDE'
+            )
+    )
+`
+
+func (q *Queries) ExistsActiveRidesForPassenger(ctx context.Context, passengerID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, existsActiveRidesForPassenger, passengerID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const finishRideQuery = `-- name: FinishRideQuery :one
+UPDATE rides
+SET
+    status_id = $1,
+    ended_at = NOW()
+WHERE
+    id = $2
+    and status_id != 'CANCELLED_RIDE'
+RETURNING
+    id,
+    passenger_id,
+    driver_id,
+    status_id
+`
+
+type FinishRideQueryParams struct {
+	StatusID string    `json:"status_id"`
+	ID       uuid.UUID `json:"id"`
+}
+
+type FinishRideQueryRow struct {
+	ID          uuid.UUID   `json:"id"`
+	PassengerID uuid.UUID   `json:"passenger_id"`
+	DriverID    pgtype.UUID `json:"driver_id"`
+	StatusID    string      `json:"status_id"`
+}
+
+func (q *Queries) FinishRideQuery(ctx context.Context, arg FinishRideQueryParams) (*FinishRideQueryRow, error) {
+	row := q.db.QueryRow(ctx, finishRideQuery, arg.StatusID, arg.ID)
+	var i FinishRideQueryRow
+	err := row.Scan(
+		&i.ID,
+		&i.PassengerID,
+		&i.DriverID,
+		&i.StatusID,
+	)
+	return &i, err
+}
+
 const getActiveRideFromPassenger = `-- name: GetActiveRideFromPassenger :one
 SELECT id, passenger_id, driver_id, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, status_id, started_at, ended_at, monetary_value, created_at, updated_at
 FROM rides
-WHERE passenger_id = $1
-AND status_id IN (
-    'WAITING_DRIVER',
-    'STARTED_RIDE'
-)
+WHERE
+    passenger_id = $1
+    AND status_id IN (
+        'WAITING_DRIVER',
+        'STARTED_RIDE'
+    )
 LIMIT 1
 `
 
@@ -112,14 +207,35 @@ func (q *Queries) GetActiveRideFromPassenger(ctx context.Context, passengerID uu
 	return &i, err
 }
 
+const getRideById = `-- name: GetRideById :one
+SELECT id, passenger_id, driver_id, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, status_id, started_at, ended_at, monetary_value, created_at, updated_at FROM rides WHERE id = $1
+`
+
+func (q *Queries) GetRideById(ctx context.Context, id uuid.UUID) (*Ride, error) {
+	row := q.db.QueryRow(ctx, getRideById, id)
+	var i Ride
+	err := row.Scan(
+		&i.ID,
+		&i.PassengerID,
+		&i.DriverID,
+		&i.OriginAddress,
+		&i.OriginLat,
+		&i.OriginLng,
+		&i.DestinationAddress,
+		&i.DestinationLat,
+		&i.DestinationLng,
+		&i.StatusID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.MonetaryValue,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
 const getRideFromDriver = `-- name: GetRideFromDriver :one
-select
-    id
-from 
-    rides
-where 
-    driver_id = $1 and
-    status_id = $2
+select id from rides where driver_id = $1 and status_id = $2
 `
 
 type GetRideFromDriverParams struct {
@@ -135,13 +251,11 @@ func (q *Queries) GetRideFromDriver(ctx context.Context, arg GetRideFromDriverPa
 }
 
 const getRideFromPassenger = `-- name: GetRideFromPassenger :one
-select
-    id
-from 
-    rides
-where 
-    passenger_id = $1 and
-    status_id = $2
+select id
+from rides
+where
+    passenger_id = $1
+    and status_id = $2
 `
 
 type GetRideFromPassengerParams struct {
@@ -156,14 +270,217 @@ func (q *Queries) GetRideFromPassenger(ctx context.Context, arg GetRideFromPasse
 	return id, err
 }
 
+const getRideHistory = `-- name: GetRideHistory :many
+SELECT
+    r.id,
+    r.destination_address,
+    r.destination_lat,
+    r.destination_lng,
+    r.origin_address,
+    r.origin_lat,
+    r.origin_lng,
+    r.created_at,
+    r.started_at,
+    r.ended_at,
+    up.name AS passenger_name,
+    ud.name AS driver_name
+FROM
+    rides r
+    LEFT JOIN users up ON r.passenger_id = up.id
+    LEFT JOIN drivers dr ON r.driver_id = dr.id
+    LEFT JOIN users ud ON dr.user_id = ud.id
+    LEFT JOIN vehicles vd ON dr.vehicle_id = vd.id
+WHERE (
+        r.passenger_id = $1
+        OR r.driver_id = $2
+    )
+    AND r.created_at < $3
+ORDER BY r.created_at DESC
+LIMIT $4
+`
+
+type GetRideHistoryParams struct {
+	PassengerID uuid.UUID          `json:"passenger_id"`
+	DriverID    pgtype.UUID        `json:"driver_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	Limit       int32              `json:"limit"`
+}
+
+type GetRideHistoryRow struct {
+	ID                 uuid.UUID          `json:"id"`
+	DestinationAddress string             `json:"destination_address"`
+	DestinationLat     float64            `json:"destination_lat"`
+	DestinationLng     float64            `json:"destination_lng"`
+	OriginAddress      string             `json:"origin_address"`
+	OriginLat          float64            `json:"origin_lat"`
+	OriginLng          float64            `json:"origin_lng"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	StartedAt          pgtype.Timestamptz `json:"started_at"`
+	EndedAt            pgtype.Timestamptz `json:"ended_at"`
+	PassengerName      pgtype.Text        `json:"passenger_name"`
+	DriverName         pgtype.Text        `json:"driver_name"`
+}
+
+func (q *Queries) GetRideHistory(ctx context.Context, arg GetRideHistoryParams) ([]*GetRideHistoryRow, error) {
+	rows, err := q.db.Query(ctx, getRideHistory,
+		arg.PassengerID,
+		arg.DriverID,
+		arg.CreatedAt,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*GetRideHistoryRow{}
+	for rows.Next() {
+		var i GetRideHistoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DestinationAddress,
+			&i.DestinationLat,
+			&i.DestinationLng,
+			&i.OriginAddress,
+			&i.OriginLat,
+			&i.OriginLng,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.PassengerName,
+			&i.DriverName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getRideInProgessFromDriver = `-- name: GetRideInProgessFromDriver :one
+SELECT id, passenger_id, driver_id, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, status_id, started_at, ended_at, monetary_value, created_at, updated_at
+FROM rides
+WHERE
+    driver_id = $1
+    AND status_id IN (
+        'STARTED_RIDE',
+        'WAITING_DRIVER'
+    )
+LIMIT 1
+`
+
+func (q *Queries) GetRideInProgessFromDriver(ctx context.Context, driverID pgtype.UUID) (*Ride, error) {
+	row := q.db.QueryRow(ctx, getRideInProgessFromDriver, driverID)
+	var i Ride
+	err := row.Scan(
+		&i.ID,
+		&i.PassengerID,
+		&i.DriverID,
+		&i.OriginAddress,
+		&i.OriginLat,
+		&i.OriginLng,
+		&i.DestinationAddress,
+		&i.DestinationLat,
+		&i.DestinationLng,
+		&i.StatusID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.MonetaryValue,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
+const getRideInProgressFromPassenger = `-- name: GetRideInProgressFromPassenger :one
+SELECT id, passenger_id, driver_id, origin_address, origin_lat, origin_lng, destination_address, destination_lat, destination_lng, status_id, started_at, ended_at, monetary_value, created_at, updated_at
+FROM rides
+WHERE
+    passenger_id = $1
+    AND status_id IN (
+        'STARTED_RIDE',
+        'WAITING_DRIVER'
+    )
+LIMIT 1
+`
+
+func (q *Queries) GetRideInProgressFromPassenger(ctx context.Context, passengerID uuid.UUID) (*Ride, error) {
+	row := q.db.QueryRow(ctx, getRideInProgressFromPassenger, passengerID)
+	var i Ride
+	err := row.Scan(
+		&i.ID,
+		&i.PassengerID,
+		&i.DriverID,
+		&i.OriginAddress,
+		&i.OriginLat,
+		&i.OriginLng,
+		&i.DestinationAddress,
+		&i.DestinationLat,
+		&i.DestinationLng,
+		&i.StatusID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.MonetaryValue,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
+const startRideQuery = `-- name: StartRideQuery :one
+UPDATE rides
+SET
+    status_id = $1,
+    started_at = NOW()
+WHERE
+    id = $2
+    and status_id != 'CANCELLED_RIDE'
+RETURNING
+    id,
+    passenger_id,
+    driver_id,
+    status_id
+`
+
+type StartRideQueryParams struct {
+	StatusID string    `json:"status_id"`
+	ID       uuid.UUID `json:"id"`
+}
+
+type StartRideQueryRow struct {
+	ID          uuid.UUID   `json:"id"`
+	PassengerID uuid.UUID   `json:"passenger_id"`
+	DriverID    pgtype.UUID `json:"driver_id"`
+	StatusID    string      `json:"status_id"`
+}
+
+func (q *Queries) StartRideQuery(ctx context.Context, arg StartRideQueryParams) (*StartRideQueryRow, error) {
+	row := q.db.QueryRow(ctx, startRideQuery, arg.StatusID, arg.ID)
+	var i StartRideQueryRow
+	err := row.Scan(
+		&i.ID,
+		&i.PassengerID,
+		&i.DriverID,
+		&i.StatusID,
+	)
+	return &i, err
+}
+
 const updateRide = `-- name: UpdateRide :one
 UPDATE rides
-SET 
+SET
     status_id = COALESCE($1, status_id),
     driver_id = COALESCE($2, driver_id)
-WHERE 
+WHERE
     id = $3
-RETURNING id, passenger_id, driver_id, status_id
+    and status_id != 'CANCELLED_RIDE'
+RETURNING
+    id,
+    passenger_id,
+    driver_id,
+    status_id
 `
 
 type UpdateRideParams struct {

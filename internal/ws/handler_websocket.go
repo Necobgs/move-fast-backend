@@ -2,7 +2,6 @@ package ws
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/Necobgs/move-fast-backend/internal/handler"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/Necobgs/move-fast-backend/internal/auth"
 	"github.com/Necobgs/move-fast-backend/internal/service"
+	"github.com/Necobgs/move-fast-backend/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
@@ -42,12 +42,10 @@ func NewWsHandler(rdb *redis.Client, authService *service.AuthService, hub *Hub,
 }
 
 func (h *HandlerWs) HandleConnection(c *gin.Context) {
-	fmt.Println("Conectado")
 	tokenString := c.Query("token")
-	fmt.Println("token: ", tokenString)
 	token, err := h.authService.ValidateToken(tokenString)
 	if err != nil {
-		fmt.Println("token inválido")
+		logger.Log.Error("token inválido")
 		c.AbortWithStatus(401)
 		return
 	}
@@ -55,7 +53,7 @@ func (h *HandlerWs) HandleConnection(c *gin.Context) {
 
 	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		fmt.Println("upgrade err:", err.Error())
+		logger.Log.Error("upgrade err", "error", err)
 		return
 	}
 
@@ -90,15 +88,13 @@ func (h *HandlerWs) readPump(c *realtime.Client) {
 		var base message.BaseMessage
 		err = json.Unmarshal(msg, &base)
 		if err != nil {
-			fmt.Println("Erro ao deserializar baseMessage: ", err)
+			logger.Log.Error("Erro ao deserializar baseMessage", "error", err)
 			break
 		}
-		fmt.Println("--base message--")
-		fmt.Println("event: ", base.Event)
 
 		handler, ok := h.eventRegistry.GetHandler(base.Event)
 		if !ok {
-			fmt.Println("handler not não encontrado")
+			logger.Log.Warn("handler não encontrado", "event", base.Event)
 			break
 		}
 		handler(c, base)

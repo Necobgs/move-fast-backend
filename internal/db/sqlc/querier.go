@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
@@ -16,14 +17,22 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (*CreateUserRow, error)
 	CreateVehicle(ctx context.Context, arg CreateVehicleParams) (*Vehicle, error)
 	DeleteUser(ctx context.Context, id uuid.UUID) error
+	ExistsActiveRidesForDriver(ctx context.Context, driverID pgtype.UUID) (bool, error)
+	ExistsActiveRidesForPassenger(ctx context.Context, passengerID uuid.UUID) (bool, error)
 	ExistsDriver(ctx context.Context, arg ExistsDriverParams) (bool, error)
 	ExistsUserByEmail(ctx context.Context, email string) (bool, error)
 	ExistsVehicle(ctx context.Context, licensePlate string) (bool, error)
 	FindSafeUserByEmail(ctx context.Context, email string) (*FindSafeUserByEmailRow, error)
-	FindUserByEmail(ctx context.Context, email string) (*FindUserByEmailRow, error)
+	FindUser(ctx context.Context, arg FindUserParams) (*FindUserRow, error)
+	FinishRideQuery(ctx context.Context, arg FinishRideQueryParams) (*FinishRideQueryRow, error)
 	GetActiveRideFromPassenger(ctx context.Context, passengerID uuid.UUID) (*Ride, error)
+	GetRideById(ctx context.Context, id uuid.UUID) (*Ride, error)
 	GetRideFromDriver(ctx context.Context, arg GetRideFromDriverParams) (uuid.UUID, error)
 	GetRideFromPassenger(ctx context.Context, arg GetRideFromPassengerParams) (uuid.UUID, error)
+	GetRideHistory(ctx context.Context, arg GetRideHistoryParams) ([]*GetRideHistoryRow, error)
+	GetRideInProgessFromDriver(ctx context.Context, driverID pgtype.UUID) (*Ride, error)
+	GetRideInProgressFromPassenger(ctx context.Context, passengerID uuid.UUID) (*Ride, error)
+	StartRideQuery(ctx context.Context, arg StartRideQueryParams) (*StartRideQueryRow, error)
 	UpdateRide(ctx context.Context, arg UpdateRideParams) (*UpdateRideRow, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) error
 }
